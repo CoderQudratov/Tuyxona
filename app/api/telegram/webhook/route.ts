@@ -12,6 +12,11 @@ export async function POST(req: NextRequest) {
     }
 
     const body = await req.json();
+
+    if (!bot.isInited()) {
+      await bot.init();
+    }
+
     await bot.handleUpdate(body);
 
     return NextResponse.json({ ok: true });
