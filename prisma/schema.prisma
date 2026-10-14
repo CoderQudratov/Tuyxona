@@ -1,0 +1,211 @@
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum Role {
+  USER
+  ADMIN
+  BOSS
+}
+
+enum BookingStatus {
+  HOLD_AWAITING_RECEIPT
+  AWAITING_ADMIN_APPROVAL
+  PENDING_CASH_CONFIRMATION
+  CONFIRMED
+  REJECTED
+  CANCELLED
+  EXPIRED
+}
+
+enum PaymentStatus {
+  PENDING
+  RECEIPT_SUBMITTED
+  VERIFIED
+  REJECTED
+  REFUNDED
+  CASH_PENDING
+}
+
+enum PaymentMethod {
+  CARD_DEPOSIT
+  CASH
+}
+
+model User {
+  id          String    @id @default(cuid())
+  telegramId  String    @unique
+  firstName   String
+  lastName    String?
+  phone       String?
+  role        Role      @default(USER)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  bookings    Booking[]
+  auditLogs   AuditLog[]
+
+  @@index([telegramId])
+}
+
+model Venue {
+  id                   String   @id @default(cuid())
+  name                 String   @default("Doston To'yxonasi")
+  address              String   @default("Toshkent shahri, Chilonzor")
+  phone                String   @default("+998 90 123 45 67")
+  mainHallPrice        Int      @default(12000000)
+  capacity             Int      @default(500)
+  depositPercent       Int      @default(10)
+  cardNumber           String   @default("8600 0000 0000 0000")
+  cardHolder           String   @default("Doston To'yxonasi")
+  holdDurationMinutes  Int      @default(60)
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  halls                Hall[]
+}
+
+model Hall {
+  id          String    @id @default(cuid())
+  venueId     String
+  venue       Venue     @relation(fields: [venueId], references: [id], onDelete: Cascade)
+  name        String    @default("Asosiy Zal")
+  capacity    Int       @default(500)
+  basePrice   Int       @default(12000000)
+  description String?
+  isActive    Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  bookings    Booking[]
+
+  @@index([venueId])
+}
+
+model Service {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  price       Int
+  icon        String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  bookingServices BookingService[]
+}
+
+model Booking {
+  id                 String         @id @default(cuid())
+  code               String         @unique // e.g. DST-2026-0001
+  userId             String
+  user               User           @relation(fields: [userId], references: [id])
+  hallId             String?
+  hall               Hall?          @relation(fields: [hallId], references: [id])
+  hallDate           DateTime       @db.Date
+  guestCount         Int            @default(150)
+  hallPriceSnapshot  Int
+  totalPrice         Int
+  depositAmount      Int
+  remainingAmount    Int
+  paymentMethod      PaymentMethod  @default(CARD_DEPOSIT)
+  status             BookingStatus  @default(HOLD_AWAITING_RECEIPT)
+  expiresAt          DateTime?
+  adminNotes         String?
+  createdAt          DateTime       @default(now())
+  updatedAt          DateTime       @updatedAt
+
+  services           BookingService[]
+  payments           Payment[]
+
+  @@index([hallDate])
+  @@index([userId])
+  @@index([status])
+  @@index([code])
+}
+
+model BookingService {
+  id                   String   @id @default(cuid())
+  bookingId            String
+  booking              Booking  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  serviceId            String
+  service              Service  @relation(fields: [serviceId], references: [id])
+  serviceNameSnapshot  String
+  servicePriceSnapshot Int
+
+  @@unique([bookingId, serviceId])
+  @@index([bookingId])
+}
+
+model Payment {
+  id          String         @id @default(cuid())
+  bookingId   String
+  booking     Booking        @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  amount      Int
+  status      PaymentStatus  @default(PENDING)
+  method      PaymentMethod  @default(CARD_DEPOSIT)
+  verifiedAt  DateTime?
+  verifiedBy  String?
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+
+  receipts    PaymentReceipt[]
+
+  @@index([bookingId])
+  @@index([status])
+}
+
+model PaymentReceipt {
+  id              String    @id @default(cuid())
+  paymentId       String
+  payment         Payment   @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  telegramFileId  String?
+  fileUrl         String?
+  submittedAt     DateTime  @default(now())
+  reviewedAt      DateTime?
+  adminNote       String?
+
+  @@index([paymentId])
+}
+
+model NotificationLog {
+  id          String   @id @default(cuid())
+  recipientId String
+  channel     String   @default("TELEGRAM") // TELEGRAM, SMS, SYSTEM
+  title       String?
+  content     String
+  status      String   @default("SENT") // SENT, FAILED
+  error       String?
+  createdAt   DateTime @default(now())
+
+  @@index([recipientId])
+}
+
+model AuditLog {
+  id              String   @id @default(cuid())
+  actorTelegramId String?
+  userId          String?
+  user            User?    @relation(fields: [userId], references: [id])
+  action          String   // e.g. "APPROVE_RECEIPT", "REJECT_RECEIPT", "MANUAL_BOOKING", "CANCEL_BOOKING"
+  entityType      String   // "BOOKING", "PAYMENT", "SERVICE", "SETTINGS"
+  entityId        String
+  details         String?  // JSON or descriptive note
+  timestamp       DateTime @default(now())
+
+  @@index([entityType, entityId])
+  @@index([actorTelegramId])
+}
+
+model VenueSettings {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  value     String
+  updatedAt DateTime @updatedAt
+}
+
